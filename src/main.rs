@@ -7,6 +7,15 @@ use std::time::Duration;
 
 use signal_hook::consts::TERM_SIGNALS;
 
+use clap::Parser;
+
+/// unix pipelines made easy!
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// path to plumber file
+    path: String,
+}
 
 fn register_shutdown() -> Arc<AtomicBool> {
     let shutdown = Arc::new(AtomicBool::new(false));
@@ -139,8 +148,10 @@ impl Pipeline {
 }
 
 fn main() {
+    let args = Args::parse();
+
     let shutdown = register_shutdown();
-    let input = fs::read_to_string("test_input.txt").unwrap();
+    let input = fs::read_to_string(args.path).unwrap();
     let input: Vec<&str> = input.split("\n").collect();
     let input: Vec<String> = input.iter()
         .map(|s| s.to_string())
