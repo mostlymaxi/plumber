@@ -78,62 +78,64 @@ struct Pipeline {
 }
 
 impl Pipeline {
-    fn spawn_process(name: &String, args: &Vec<String>, stdin: Stdio) -> Child {
+    fn spawn_process(
+        name: &String,
+        args: &Vec<String>,
+        stdin: Stdio,
+        stdout: Stdio,
+        stderr: Stdio) -> Child {
         let mut child = Command::new(name);
 
         child.args(args);
 
         child
             .stdin(stdin)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stdout(stdout)
+            .stderr(stderr)
             .process_group(0)
             .spawn()
             .expect(&format!("Failed to spawn command: {} {}", name, args.join(" ")))
     }
 
-    fn new(input: PipelineInput, shutdown: Arc<AtomicBool>) -> Pipeline {
+    fn new(input: &PipelineInput, shutdown: Arc<AtomicBool>) -> Pipeline {
         let mut jobs = Vec::new();
         let mut prev_stdout = Stdio::null();
 
-        for (idx, cmd) in input.commands.iter().enumerate() {
-            let mut child = Self::spawn_process(&cmd.name, &cmd.args, prev_stdout);
+        let commands_exc_last = &input.commands[..input.commands.len() - 1];
 
-            // if we take prev_stdout from the last command we are going to accidentally sigpipe
-            if idx >= input.commands.len() - 1 {
+        if !commands_exc_last.is_empty() {
+            for cmd in commands_exc_last.iter() {
+                let mut child = Self::spawn_process(
+                    &cmd.name, &cmd.args,
+                    prev_stdout, Stdio::piped(), Stdio::piped()
+                );
+                prev_stdout = Stdio::from(child.stdout.take().unwrap());
                 jobs.push(child);
-                break
             }
-
-            prev_stdout = Stdio::from(child.stdout.take().unwrap());
-            jobs.push(child);
         }
+
+        // this is to pipe the stdout of the last command to the parent process
+        let last_cmd = input.commands.last().unwrap();
+        let child = Self::spawn_process(
+            &last_cmd.name, &last_cmd.args,
+            prev_stdout, Stdio::inherit(), Stdio::piped());
+
+        jobs.push(child);
 
         Pipeline { shutdown: shutdown, jobs: jobs }
     }
 
-    fn run(mut self) {
-        let mut last_job = self.jobs.pop().unwrap();
-        let first_job = self.jobs.first_mut().unwrap();
-
-        while !self.shutdown.load(Ordering::Relaxed) {
-            // busy wait is the best way I could think of
-            match last_job.try_wait() {
-                Ok(Some(_)) => { break; },
-                Ok(None) => { },
-                Err(e) => { eprintln!("error attempting to wait: {e}"); break; },
-            };
-            thread::sleep(Duration::from_secs(1));
-        }
-
+    fn cleanup(mut self) {
         // if we get term signal, kill ONLY the first job.
         // this ensures all data in the pipeline is processed to the end.
         if self.shutdown.load(Ordering::Relaxed) {
-            first_job
+            self.jobs.first_mut()
+                .unwrap()
                 .kill()
                 .expect("Something went wrong killing first process");
         }
 
+        let last_job = self.jobs.pop().unwrap();
         let last_out = last_job
             .wait_with_output()
             .expect("Failed to wait for last process");
@@ -143,7 +145,20 @@ impl Pipeline {
         }
 
         println!("{}", String::from_utf8(last_out.stdout).unwrap());
-        eprintln!("{}", last_out.status);
+    }
+
+    fn run(mut self) {
+        while !self.shutdown.load(Ordering::Relaxed) {
+            // busy wait is the best way I could think of
+            match self.jobs.last_mut().unwrap().try_wait() {
+                Ok(Some(_)) => { break; },
+                Ok(None) => { },
+                Err(e) => { eprintln!("error attempting to wait: {e}"); break; },
+            };
+            thread::sleep(Duration::from_secs(1));
+        }
+
+        self.cleanup();
     }
 }
 
@@ -162,7 +177,7 @@ fn main() {
         if cmd.is_empty() { continue }
 
         let input = PipelineInput::new(cmd);
-        let pipeline = Pipeline::new(input, shutdown.clone());
+        let pipeline = Pipeline::new(&input, shutdown.clone());
         handles.push(thread::spawn(move || pipeline.run()));
     }
 
