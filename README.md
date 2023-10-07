@@ -5,9 +5,9 @@ The goal of this project was to create simple, modular, and powerful pipelines u
 
 ```pull_from_stream | transformer_1 | transformer_2 | transformer_3 | push_to_stream```
 
-The shell users may recognize the process pipeline language used and ask why even use plumber?
+Shell users may recognize the process pipeline language used and ask why even use plumber?
 
-The whole purpose of plumber is to ensure that pipelines are robust against reboots and interrupts, easily defined and managed through files (for IaC use cases), and are highly configurable.
+The purpose of plumber is to ensure that pipelines are robust against reboots and interrupts, easily defined and managed through files (for IaC use cases), and are highly configurable.
 
 ## features
 - modular pipeline building
