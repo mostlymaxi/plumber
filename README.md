@@ -31,6 +31,6 @@ tail -f some_log_file | grep '1' | wc
 tail -f some_other_log_file | grep '2' | wc
 ```
 
-run the pipeline with ```plumber <PATH>```.
+run the pipeline with ```plumber run <PATH>```.
 
 hit ctrl-c (or any generic kill signal) to gracefully stop the pipline(s). This will send a kill signal to the FIRST process in the pipeline(s) and then wait for all the other processes to finish. As long as the first process handles the signal gracefully, this ensures that end-to-end no data ever gets lost!
