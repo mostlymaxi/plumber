@@ -143,8 +143,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "plumber"
-version = "0.1.0"
+name = "plumber-cli"
+version = "0.1.1"
 dependencies = [
  "clap",
  "nix",
