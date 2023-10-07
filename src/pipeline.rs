@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::os::unix::process::CommandExt;
 use std::thread;
 use std::time::Duration;
+use std::fs::File;
 
 // Convenience structure to split command vector (cat a_file) into a
 // command name (cat) and arguments ([a_file]).
@@ -28,7 +29,7 @@ impl PipelineCommand {
 // Maybe some sort of settings in the pipeline file?
 pub struct PipelineInput {
     _input_string: String,
-    _working_dir: String,
+    working_dir: String,
     commands: Vec<PipelineCommand>,
 }
 
@@ -48,7 +49,7 @@ impl PipelineInput {
 
         PipelineInput {
             _input_string: input_string,
-            _working_dir: working_dir,
+            working_dir,
             commands
         }
     }
@@ -87,9 +88,11 @@ impl Pipeline {
 
         if !commands_exc_last.is_empty() {
             for cmd in commands_exc_last.iter() {
+                let stderr = File::create(format!("{}/{}.stderr.log", input.working_dir, cmd.name)).unwrap();
+                let stderr = Stdio::from(stderr);
                 let mut child = Self::spawn_process(
                     &cmd.name, &cmd.args,
-                    prev_stdout, Stdio::piped(), Stdio::inherit()
+                    prev_stdout, Stdio::piped(), stderr
                 );
                 prev_stdout = Stdio::from(child.stdout.take().unwrap());
                 jobs.push(child);
@@ -98,14 +101,16 @@ impl Pipeline {
 
         // this is to pipe the stdout of the last command to the parent process
         let last_cmd = input.commands.last().unwrap();
+        let stderr = File::create(format!("{}/{}.stderr.log", input.working_dir, last_cmd.name)).unwrap();
+        let stderr = Stdio::from(stderr);
         let child = Self::spawn_process(
             &last_cmd.name, &last_cmd.args,
-            prev_stdout, Stdio::inherit(), Stdio::inherit()
+            prev_stdout, Stdio::inherit(), stderr
         );
 
         jobs.push(child);
 
-        Pipeline { shutdown: shutdown, jobs: jobs }
+        Pipeline { shutdown, jobs }
     }
 
     fn cleanup(mut self) {
