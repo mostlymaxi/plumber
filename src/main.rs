@@ -1,13 +1,15 @@
-use std::process::{Command, Stdio, Child};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::io::{BufReader, BufRead};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use std::os::unix::process::CommandExt;
-use std::{thread, fs};
-use std::time::Duration;
+use std::{fs, thread};
+use rand::seq::IteratorRandom;
+
 
 use signal_hook::consts::TERM_SIGNALS;
-
 use clap::Parser;
+
+mod pipeline;
+use crate::pipeline::{Pipeline, PipelineInput};
 
 /// unix pipelines made easy!
 #[derive(Parser)]
@@ -22,12 +24,16 @@ enum Subargs {
     /// run pipelines from a plumber file
     Run {
         /// path to plumber file
-        path: String
+        path: String,
+        /// name to use for output metadata
+        name: Option<String>,
     },
     /// execute a pipeline from a string input
     Exec {
         /// raw pipeline string (must be in quotes)
         pipeline: String,
+        /// name to use for output metadata
+        name: Option<String>,
     },
 }
 
@@ -42,144 +48,39 @@ fn register_shutdown() -> Arc<AtomicBool> {
     shutdown
 }
 
-// Convenience structure to split command vector (cat a_file) into a
-// command name (cat) and arguments ([a_file]).
-struct PipelineCommand {
-    name: String,
-    args: Vec<String>,
-}
+fn setup_directories(name: &Option<String>) -> String {
 
-impl PipelineCommand {
-    fn new(mut cmd: Vec<String>) -> PipelineCommand {
-        let name = cmd.remove(0);
-        let args = cmd;
-
-        PipelineCommand {
-            name,
-            args
-        }
-    }
-}
-
-// Future proof if pipeline needs more than a vector of commands as input.
-// Maybe some sort of settings in the pipeline file?
-struct PipelineInput {
-    _input_string: String,
-    commands: Vec<PipelineCommand>,
-}
-
-impl PipelineInput {
-    fn new(input_string: String) -> PipelineInput {
-        let split_on_pipe = input_string.split('|'); // split pipes
-
-        let split_on_whitespace: Vec<Vec<String>> = split_on_pipe.map(|cmd_string|
-            shlex::split(cmd_string)
-            .unwrap_or_default())
-            .collect();
-
-        let commands: Vec<PipelineCommand> = split_on_whitespace
-            .into_iter().map(|cmd|
-            PipelineCommand::new(cmd))
-            .collect();
-
-        PipelineInput { _input_string: input_string, commands}
-    }
-}
-
-struct Pipeline {
-    shutdown: Arc<AtomicBool>,
-    jobs: Vec<Child>,
-}
-
-impl Pipeline {
-    fn spawn_process(
-        name: &String,
-        args: &Vec<String>,
-        stdin: Stdio,
-        stdout: Stdio,
-        stderr: Stdio) -> Child {
-        let mut child = Command::new(name);
-
-        child.args(args);
-
-        child
-            .stdin(stdin)
-            .stdout(stdout)
-            .stderr(stderr)
-            .process_group(0)
-            .spawn()
-            .expect(&format!("Failed to spawn command: {} {}", name, args.join(" ")))
-    }
-
-    fn new(input: &PipelineInput, shutdown: Arc<AtomicBool>) -> Pipeline {
-        let mut jobs = Vec::new();
-        let mut prev_stdout = Stdio::null();
-
-        let commands_exc_last = &input.commands[..input.commands.len() - 1];
-
-        if !commands_exc_last.is_empty() {
-            for cmd in commands_exc_last.iter() {
-                let mut child = Self::spawn_process(
-                    &cmd.name, &cmd.args,
-                    prev_stdout, Stdio::piped(), Stdio::inherit()
-                );
-                prev_stdout = Stdio::from(child.stdout.take().unwrap());
-                jobs.push(child);
-            }
-        }
-
-        // this is to pipe the stdout of the last command to the parent process
-        let last_cmd = input.commands.last().unwrap();
-        let child = Self::spawn_process(
-            &last_cmd.name, &last_cmd.args,
-            prev_stdout, Stdio::inherit(), Stdio::inherit()
-        );
-
-        jobs.push(child);
-
-        Pipeline { shutdown: shutdown, jobs: jobs }
-    }
-
-    fn cleanup(mut self) {
-        // if we get term signal, kill ONLY the first job.
-        // this ensures all data in the pipeline is processed to the end.
-        if self.shutdown.load(Ordering::Relaxed) {
-            self.jobs.first_mut()
+    let name = match name {
+        Some(name) => name.to_owned(),
+        None => {
+            let words = fs::File::open("/usr/share/dict/words").unwrap();
+            let words = BufReader::new(words).lines();
+            words.choose(&mut rand::thread_rng())
                 .unwrap()
-                .kill()
-                .expect("Something went wrong killing first process");
+                .unwrap()
         }
+    };
 
-        for mut jobs in self.jobs {
-            jobs.wait().unwrap();
-        }
-    }
+    let _ = fs::create_dir_all(format!("/tmp/plumber/{}", name));
 
-    fn busy_wait_and_sleep(&mut self, seconds: u64) -> bool {
-        thread::sleep(Duration::from_secs(seconds));
-        match self.jobs.last_mut().unwrap().try_wait() {
-            Ok(Some(_)) => true,
-            Ok(None) => false,
-            Err(err) => panic!("{}", err)
-        }
-    }
-
-    fn run(mut self) {
-        while !self.shutdown.load(Ordering::Relaxed) {
-            if self.busy_wait_and_sleep(2) { break }
-        }
-
-        self.cleanup();
-    }
+    name
 }
 
 fn main() {
     let args = Args::parse();
     let shutdown = register_shutdown();
 
-    let input = match &args.command {
-        Subargs::Exec { pipeline } => pipeline.to_owned(),
-        Subargs::Run { path } => fs::read_to_string(path).unwrap(),
+    let (input, name) = match &args.command {
+        Subargs::Exec { pipeline , name} => {
+            let name = setup_directories(name);
+            let input = pipeline.to_owned();
+            (input, name)
+        },
+        Subargs::Run { path, name } => {
+            let name = setup_directories(name);
+            let input = fs::read_to_string(path).unwrap();
+            (input, name)
+        }
     };
 
     let input: Vec<&str> = input.split("\n").collect();
