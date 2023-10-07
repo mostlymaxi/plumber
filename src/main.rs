@@ -92,7 +92,7 @@ fn main() {
     for cmd in input {
         if cmd.is_empty() { continue }
 
-        let input = PipelineInput::new(cmd, name.clone());
+        let input = PipelineInput::new(cmd, format!("/tmp/plumber/{name}"));
         let pipeline = Pipeline::new(&input, shutdown.clone());
         handles.push(thread::spawn(move || pipeline.run()));
     }
