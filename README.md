@@ -15,7 +15,7 @@ The purpose of plumber is to ensure that pipelines are robust against reboots an
 - extremely simple implementation
 
 ## behavior
-- pipes (|) imply that stdout is redirected to stdin of following program
+- pipes | imply that stdout is redirected to stdin of following program
 - all programs stderr are merged to parent stderr (!not working!)
 - termination signals will be caught, sent to the FIRST program in the pipeline, and wait for completion
 
