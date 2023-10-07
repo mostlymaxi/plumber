@@ -32,4 +32,4 @@ tail -f some_log_file | grep '1' | pv --force | wc
 
 run the pipeline with ```plumber run <PATH>```.
 
-hit ctrl-c (or any generic kill signal) to gracefully stop the pipline(s). This will send a kill signal to the FIRST process in the pipeline(s) and then wait for all the other processes to finish. As long as the first process handles the signal gracefully, this ensures that end-to-end no data ever gets lost!
+hit ctrl-c (or send any generic term signal) to gracefully stop the pipeline. This will send a SIGTERM to the FIRST process in the pipeline(s) and then wait for all the other processes to finish. As long as the first process handles the signal gracefully, this ensures that end-to-end no data ever gets lost!

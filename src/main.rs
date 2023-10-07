@@ -4,7 +4,6 @@ use std::sync::Arc;
 use std::{fs, thread};
 use rand::seq::IteratorRandom;
 
-
 use signal_hook::consts::TERM_SIGNALS;
 use clap::Parser;
 
