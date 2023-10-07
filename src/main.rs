@@ -121,7 +121,7 @@ impl Pipeline {
             for cmd in commands_exc_last.iter() {
                 let mut child = Self::spawn_process(
                     &cmd.name, &cmd.args,
-                    prev_stdout, Stdio::piped(), Stdio::piped()
+                    prev_stdout, Stdio::piped(), Stdio::inherit()
                 );
                 prev_stdout = Stdio::from(child.stdout.take().unwrap());
                 jobs.push(child);
@@ -132,7 +132,7 @@ impl Pipeline {
         let last_cmd = input.commands.last().unwrap();
         let child = Self::spawn_process(
             &last_cmd.name, &last_cmd.args,
-            prev_stdout, Stdio::inherit(), Stdio::piped()
+            prev_stdout, Stdio::inherit(), Stdio::inherit()
         );
 
         jobs.push(child);
@@ -155,15 +155,18 @@ impl Pipeline {
         }
     }
 
+    fn busy_wait_and_sleep(&mut self, seconds: u64) -> bool {
+        thread::sleep(Duration::from_secs(seconds));
+        match self.jobs.last_mut().unwrap().try_wait() {
+            Ok(Some(_)) => true,
+            Ok(None) => false,
+            Err(err) => panic!("{}", err)
+        }
+    }
+
     fn run(mut self) {
         while !self.shutdown.load(Ordering::Relaxed) {
-            // busy wait is the best way I could think of
-            match self.jobs.last_mut().unwrap().try_wait() {
-                Ok(Some(_)) => { break; },
-                Ok(None) => { },
-                Err(e) => { eprintln!("error attempting to wait: {e}"); break; },
-            };
-            thread::sleep(Duration::from_secs(1));
+            if self.busy_wait_and_sleep(2) { break }
         }
 
         self.cleanup();
