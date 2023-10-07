@@ -16,7 +16,7 @@ The purpose of plumber is to ensure that pipelines are robust against reboots an
 
 ## behavior
 - pipes imply that stdout is redirected to stdin of following program
-- all programs stderr are merged to parent stderr (!not working!)
+- all programs stderr are written to files in ```/tmp/plumber/{random name}```
 - termination signals will be caught, sent to the FIRST program in the pipeline, and wait for completion
 
 ## modules
@@ -25,10 +25,9 @@ Building a module / transformer / process for the pipeline is easy in almost any
 Note: This is different for the first process in a pipeline - it is expected that it will handle SIGTERM and SIGINT in a responsible way.
 
 ## example
-create a test file with a pipeline (or pipelines) of processes:
+create a test file with a pipeline of processes:
 ```
-tail -f some_log_file | grep '1' | wc
-tail -f some_other_log_file | grep '2' | wc
+tail -f some_log_file | grep '1' | pv --force | wc
 ```
 
 run the pipeline with ```plumber run <PATH>```.

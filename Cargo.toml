@@ -14,5 +14,6 @@ name = "plumber"
 
 [dependencies]
 clap = { version = "4.4.6", features = ["derive"] }
+rand = "0.8.5"
 shlex = "1.2.0"
 signal-hook = "0.3.17"
