@@ -33,3 +33,6 @@ tail -f some_log_file | grep '1' | pv --force | wc
 run the pipeline with ```plumber run <PATH>```.
 
 hit ctrl-c (or send any generic term signal) to gracefully stop the pipeline. This will send a SIGTERM to the FIRST process in the pipeline(s) and then wait for all the other processes to finish. As long as the first process handles the signal gracefully, this ensures that end-to-end no data ever gets lost!
+
+## daemonizing
+I have a strong belief in letting programs do the things they are good at and nothing more, so plumber will never have a built in daemon feature. In order to daemonize plumber you have to use your operating system's daemonization mechanism to execute ```plumber run <PATH TO PLUMBER FILE>```. However, feel free to use it bravely as the signals and restarts will work as intended!
