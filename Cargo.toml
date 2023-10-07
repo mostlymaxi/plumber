@@ -4,6 +4,8 @@ version = "0.1.0"
 authors = ["Maxi Saparov"]
 keywords = ["pipe", "pipeline"]
 categories = ["command-line-utilities"]
+license = "MIT"
+description = "unix process pipelines made easy"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
