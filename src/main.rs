@@ -4,7 +4,6 @@ use std::sync::Arc;
 use std::{fs, thread};
 use rand::seq::IteratorRandom;
 
-
 use signal_hook::consts::TERM_SIGNALS;
 use clap::Parser;
 
@@ -65,6 +64,8 @@ fn setup_directories(name: &Option<String>) -> String {
 
     let _ = fs::create_dir_all(format!("/tmp/plumber/{}", name));
 
+    eprintln!("{name}");
+
     name
 }
 
@@ -86,6 +87,8 @@ fn main() {
     };
 
     let input = input.trim().to_string();
+    eprintln!("{input}");
+
     let mut handles = Vec::new();
 
     let input = PipelineInput::new(input.clone(), format!("/tmp/plumber/{name}"));

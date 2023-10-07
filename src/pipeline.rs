@@ -5,6 +5,9 @@ use std::os::unix::process::CommandExt;
 use std::thread;
 use std::time::Duration;
 use std::fs::File;
+use nix::unistd::Pid;
+use nix::sys::signal;
+use nix::sys::signal::Signal;
 
 // Convenience structure to split command vector (cat a_file) into a
 // command name (cat) and arguments ([a_file]).
@@ -60,6 +63,22 @@ pub struct Pipeline {
     jobs: Vec<Child>,
 }
 
+impl Drop for Pipeline {
+    fn drop(&mut self) {
+        // if we get term signal, kill ONLY the first job.
+        // this ensures all data in the pipeline is processed to the end.
+        if self.shutdown.load(Ordering::Relaxed) {
+            eprintln!("exiting gracefully...");
+            let pid = self.jobs.first().unwrap().id();
+            signal::kill(Pid::from_raw(pid.try_into().unwrap()), Signal::SIGTERM).unwrap();
+        }
+
+        for jobs in &mut self.jobs {
+            jobs.wait().unwrap();
+        }
+    }
+}
+
 impl Pipeline {
     fn spawn_process(
         name: &String,
@@ -107,25 +126,9 @@ impl Pipeline {
             &last_cmd.name, &last_cmd.args,
             prev_stdout, Stdio::inherit(), stderr
         );
-
         jobs.push(child);
 
         Pipeline { shutdown, jobs }
-    }
-
-    fn cleanup(mut self) {
-        // if we get term signal, kill ONLY the first job.
-        // this ensures all data in the pipeline is processed to the end.
-        if self.shutdown.load(Ordering::Relaxed) {
-            self.jobs.first_mut()
-                .unwrap()
-                .kill()
-                .expect("Something went wrong killing first process");
-        }
-
-        for mut jobs in self.jobs {
-            jobs.wait().unwrap();
-        }
     }
 
     fn busy_wait_and_sleep(&mut self, seconds: u64) -> bool {
@@ -141,7 +144,5 @@ impl Pipeline {
         while !self.shutdown.load(Ordering::Relaxed) {
             if self.busy_wait_and_sleep(2) { break }
         }
-
-        self.cleanup();
     }
 }
