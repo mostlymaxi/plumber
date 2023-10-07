@@ -1,15 +1,25 @@
 # plumber
-### unix process pipelines made easy
+## unix process pipelines made easy
 
 The goal of this project was to create simple, modular, and powerful pipelines using the standard tools of the unix operating system.
 
-Namely, the idea was born when I had to process various streams of data with only slightly requirements so I decided to just make some simple programs that take text as input, transform it, and push it to output. This let me setup simple daemons that looked like this:
-
 ```pull_from_stream | transformer_1 | transformer_2 | transformer_3 | push_to_stream```
 
-Unfortunately, daemonizing something this simple is never, well, simple. So here we are.
+The shell users may recognize the process pipeline language used and ask why even use plumber?
 
-### example
+The whole purpose of plumber is to ensure that pipelines are robust against reboots and interrupts, easily defined and managed through files (for IaC use cases), and are highly configurable.
+
+## features
+- modular pipeline building
+- robust signal handling
+- extremely simple implementation
+
+## modules
+Building a module / transformer / process for the pipeline is easy in almost any programming language (performance is up to the programmer of course). All you need is a program that reads from stdin, does a transormation, and outputs to stdout.
+
+Note: This is different for the first process in a pipeline - it is expected that it will handle SIGTERM and SIGINT in a responsible way.
+
+## example
 create a test file with a pipeline (or pipelines) of processes:
 ```
 tail -f some_log_file | grep '1' | wc
