@@ -10,11 +10,25 @@ use signal_hook::consts::TERM_SIGNALS;
 use clap::Parser;
 
 /// unix pipelines made easy!
-#[derive(Parser, Debug)]
+#[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// path to plumber file
-    path: String,
+    #[command(subcommand)]
+    command: Subargs,
+}
+
+#[derive(clap::Subcommand)]
+enum Subargs {
+    /// run pipelines from a plumber file
+    Run {
+        /// path to plumber file
+        path: String
+    },
+    /// execute a pipeline from a string input
+    Exec {
+        /// raw pipeline string (must be in quotes)
+        pipeline: String,
+    },
 }
 
 fn register_shutdown() -> Arc<AtomicBool> {
@@ -118,7 +132,8 @@ impl Pipeline {
         let last_cmd = input.commands.last().unwrap();
         let child = Self::spawn_process(
             &last_cmd.name, &last_cmd.args,
-            prev_stdout, Stdio::inherit(), Stdio::piped());
+            prev_stdout, Stdio::inherit(), Stdio::piped()
+        );
 
         jobs.push(child);
 
@@ -135,16 +150,9 @@ impl Pipeline {
                 .expect("Something went wrong killing first process");
         }
 
-        let last_job = self.jobs.pop().unwrap();
-        let last_out = last_job
-            .wait_with_output()
-            .expect("Failed to wait for last process");
-
         for mut jobs in self.jobs {
             jobs.wait().unwrap();
         }
-
-        println!("{}", String::from_utf8(last_out.stdout).unwrap());
     }
 
     fn run(mut self) {
@@ -164,9 +172,13 @@ impl Pipeline {
 
 fn main() {
     let args = Args::parse();
-
     let shutdown = register_shutdown();
-    let input = fs::read_to_string(args.path).unwrap();
+
+    let input = match &args.command {
+        Subargs::Exec { pipeline } => pipeline.to_owned(),
+        Subargs::Run { path } => fs::read_to_string(path).unwrap(),
+    };
+
     let input: Vec<&str> = input.split("\n").collect();
     let input: Vec<String> = input.iter()
         .map(|s| s.to_string())
