@@ -26,13 +26,15 @@ enum Subargs {
         /// path to plumber file
         path: String,
         /// name to use for output metadata
+        #[arg(short, long)]
         name: Option<String>,
     },
     /// execute a pipeline from a string input
     Exec {
-        /// raw pipeline string (must be in quotes)
-        pipeline: String,
+        /// raw pipeline string
+        pipeline: Vec<String>,
         /// name to use for output metadata
+        #[arg(short, long)]
         name: Option<String>,
     },
 }
@@ -73,7 +75,7 @@ fn main() {
     let (input, name) = match &args.command {
         Subargs::Exec { pipeline , name} => {
             let name = setup_directories(name);
-            let input = pipeline.to_owned();
+            let input = pipeline.join(" ");
             (input, name)
         },
         Subargs::Run { path, name } => {
