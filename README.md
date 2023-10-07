@@ -14,6 +14,11 @@ The purpose of plumber is to ensure that pipelines are robust against reboots an
 - robust signal handling
 - extremely simple implementation
 
+## behavior
+- pipes (|) imply that stdout is redirected to stdin of following program
+- all programs stderr are merged to parent stderr (!not working!)
+- termination signals will be caught, sent to the FIRST program in the pipeline, and wait for completion
+
 ## modules
 Building a module / transformer / process for the pipeline is easy in almost any programming language (performance is up to the programmer of course). All you need is a program that reads from stdin, does a transormation, and outputs to stdout.
 
