@@ -75,7 +75,7 @@ fn run(path: PathBuf, shutdown: Arc<AtomicBool>) -> Vec<JoinHandle<()>>{
             for file in read_dir(path).unwrap() {
                 let file = file.unwrap().path();
                 if !file.is_file() { continue }
-                if !file.ends_with(".plumb") { continue }
+                if !file.extension().is_some_and(|e| e.eq_ignore_ascii_case("plumb")){ continue }
 
                 let pipeline = parse_plumber_file(&file);
                 let mut metadata_dir = PathBuf::from("/var/log/plumber/");
