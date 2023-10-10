@@ -16,7 +16,8 @@ The purpose of plumber is to ensure that pipelines are robust against reboots an
 
 ## behavior
 - pipes imply that stdout is redirected to stdin of following program
-- all programs stderr are written to files in ```/tmp/plumber/{random name}```
+- plumber run defaults stderr logs to ```/var/log/plumber/<plumber file name>/<cmd>.stderr.log```
+- plumber exec defaults temporary stderr logs to ```/tmp/plumber/leaky/<cmd>.stderr.log``
 - termination signals will be caught, sent to the FIRST program in the pipeline, and wait for completion
 
 ## modules
@@ -27,12 +28,27 @@ Note: This is different for the first process in a pipeline - it is expected tha
 ## example
 create a test file with a pipeline of processes:
 ```
-tail -f some_log_file | grep '1' | pv --force | wc
+$ echo "tail -n 100 -f /usr/share/dict/words | grep 'a' | wc" > test_pipeline.plumb
 ```
+run the pipeline with ```plumber run <PATH>``` (the user executing the command will need permission to write to /var/log/plumber)
+```
+$ plumber run test_pipeline.plumb
+spawning pipeline: tail -n 100 -f /usr/share/dict/words | grep 'a' | wc
+logging to => /var/log/plumber/test_pipeline
+```
+hit ctrl-c (or send any generic term signal) to gracefully stop the pipeline and get the stdout of the final command.
+```
+$ ^Cexiting gracefully...
+      28      28     334
+```
+find stderr logs in ```/var/log/plumber/test_pipeline/tail.stderr.log, grep.stderr.log, wc.stderr.log```
 
-run the pipeline with ```plumber run <PATH>```.
-
-hit ctrl-c (or send any generic term signal) to gracefully stop the pipeline. This will send a SIGTERM to the FIRST process in the pipeline(s) and then wait for all the other processes to finish. As long as the first process handles the signal gracefully, this ensures that end-to-end no data ever gets lost!
+try rerunning the pipeline simply through bash and hitting ctr-c.
+```
+$ tail -n 100 -f /usr/share/dict/words | grep 'a' | wc
+^C
+```
+notice how there is no output as all the commands received the interrupt. With plumber you can be confident that data held in the buffers of intermediate processes will never be lost like this.
 
 ## daemonizing
 I have a strong belief in letting programs do the things they are good at and nothing more, so plumber will never have a built in daemon feature. In order to daemonize plumber you have to use your operating system's daemonization mechanism to execute ```plumber run <PATH TO PLUMBER FILE>```. However, feel free to use it bravely as the signals and restarts will work as intended!

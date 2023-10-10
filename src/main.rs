@@ -1,8 +1,10 @@
-use std::io::{BufReader, BufRead};
+use std::fs::read_dir;
+
+use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::thread::JoinHandle;
 use std::{fs, thread};
-use rand::seq::IteratorRandom;
 
 use signal_hook::consts::TERM_SIGNALS;
 use clap::Parser;
@@ -22,19 +24,16 @@ struct Args {
 enum Subargs {
     /// run pipelines from a plumber file
     Run {
-        /// path to plumber file
-        path: String,
-        /// name to use for output metadata
-        #[arg(short, long)]
-        name: Option<String>,
+        /// path to plumber file or directory
+        path: PathBuf,
     },
     /// execute a pipeline from a string input
     Exec {
         /// raw pipeline string
-        pipeline: Vec<String>,
-        /// name to use for output metadata
-        #[arg(short, long)]
-        name: Option<String>,
+        pipeline: String,
+        /// path to metadata directory where stderr is logged
+        #[arg(short, long, default_value = "/tmp/plumber/leaky/")]
+        metadata_dir: PathBuf,
     },
 }
 
@@ -49,53 +48,75 @@ fn register_shutdown() -> Arc<AtomicBool> {
     shutdown
 }
 
-fn setup_directories(name: &Option<String>) -> String {
+fn parse_plumber_file(path: &PathBuf) -> String {
+    let input = fs::read_to_string(path).unwrap();
+    input
+}
 
-    let name = match name {
-        Some(name) => name.to_owned(),
-        None => {
-            let words = fs::File::open("/usr/share/dict/words").unwrap();
-            let words = BufReader::new(words).lines();
-            words.choose(&mut rand::thread_rng())
-                .unwrap()
-                .unwrap()
+fn exec(pipeline: String, metadata_dir: PathBuf, shutdown: Arc<AtomicBool>) -> Option<JoinHandle<()>> {
+    if pipeline.trim().is_empty() { return None }
+
+    fs::create_dir_all(&metadata_dir).expect("Failed to create metadata directory");
+
+    eprintln!("spawning pipeline: {}", pipeline.trim());
+    eprintln!("logging to => {}", metadata_dir.display());
+
+    let input = PipelineInput::new(pipeline, metadata_dir);
+    let pipeline = Pipeline::new(&input, shutdown.clone());
+    Some(thread::spawn(move || pipeline.run()))
+}
+
+
+fn run(path: PathBuf, shutdown: Arc<AtomicBool>) -> Vec<JoinHandle<()>>{
+    let mut handles = Vec::new();
+
+    match path.is_dir() {
+        true => {
+            for file in read_dir(path).unwrap() {
+                let file = file.unwrap().path();
+                if !file.is_file() { continue }
+                if !file.ends_with(".plumb") { continue }
+
+                let pipeline = parse_plumber_file(&file);
+                let mut metadata_dir = PathBuf::from("/var/log/plumber/");
+                metadata_dir.push(file.file_stem().unwrap());
+
+                match exec(pipeline, metadata_dir, shutdown.clone()) {
+                    Some(h) => handles.push(h),
+                    None => eprintln!("WARNING: tried to execute empty pipeline string")
+                }
+            }
+        },
+        false => {
+            let pipeline = parse_plumber_file(&path);
+            let mut metadata_dir = PathBuf::from("/var/log/plumber/");
+            metadata_dir.push(path.file_stem().unwrap());
+
+            match exec(pipeline, metadata_dir, shutdown.clone()) {
+                Some(h) => handles.push(h),
+                None => eprintln!("WARNING: tried to execute empty pipeline string")
+            }
         }
-    };
+    }
 
-    let _ = fs::create_dir_all(format!("/tmp/plumber/{}", name));
-
-    eprintln!("{name}");
-
-    name
+    handles
 }
 
 fn main() {
     let args = Args::parse();
     let shutdown = register_shutdown();
 
-    let (input, name) = match &args.command {
-        Subargs::Exec { pipeline , name} => {
-            let name = setup_directories(name);
-            let input = pipeline.join(" ");
-            (input, name)
+    match &args.command {
+        Subargs::Exec { pipeline, metadata_dir } => {
+            match exec(pipeline.into(), metadata_dir.into(), shutdown) {
+                Some(h) => h.join().expect("failed to join thread"),
+                None => eprintln!("WARNING: tried to execute empty pipeline string. Exiting...")
+            }
         },
-        Subargs::Run { path, name } => {
-            let name = setup_directories(name);
-            let input = fs::read_to_string(path).unwrap();
-            (input, name)
+        Subargs::Run { path } => {
+            for thread in run(path.into(), shutdown) {
+                thread.join().expect("failed to join thread");
+            }
         }
-    };
-
-    let input = input.trim().to_string();
-    eprintln!("{input}");
-
-    let mut handles = Vec::new();
-
-    let input = PipelineInput::new(input.clone(), format!("/tmp/plumber/{name}"));
-    let pipeline = Pipeline::new(&input, shutdown.clone());
-    handles.push(thread::spawn(move || pipeline.run()));
-
-    for handle in handles {
-        handle.join().unwrap();
     }
 }

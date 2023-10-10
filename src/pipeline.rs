@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::process::{Command, Stdio, Child};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -32,12 +33,12 @@ impl PipelineCommand {
 // Maybe some sort of settings in the pipeline file?
 pub struct PipelineInput {
     _input_string: String,
-    working_dir: String,
+    metadata_dir: PathBuf,
     commands: Vec<PipelineCommand>,
 }
 
 impl PipelineInput {
-    pub fn new(input_string: String, working_dir: String) -> PipelineInput {
+    pub fn new(input_string: String, metadata_dir: PathBuf) -> PipelineInput {
         let split_on_pipe = input_string.split('|'); // split pipes
 
         let split_on_whitespace: Vec<Vec<String>> = split_on_pipe.map(|cmd_string|
@@ -52,7 +53,7 @@ impl PipelineInput {
 
         PipelineInput {
             _input_string: input_string,
-            working_dir,
+            metadata_dir,
             commands
         }
     }
@@ -103,11 +104,20 @@ impl Pipeline {
         let mut jobs = Vec::new();
         let mut prev_stdout = Stdio::null();
 
+        let mut stderr_path = input.metadata_dir.clone();
+        stderr_path.push("tmp");
+
         let commands_exc_last = &input.commands[..input.commands.len() - 1];
 
         if !commands_exc_last.is_empty() {
+
             for cmd in commands_exc_last.iter() {
-                let stderr = File::create(format!("{}/{}.stderr.log", input.working_dir, cmd.name)).unwrap();
+                let stderr = File::create(
+                    stderr_path
+                    .with_file_name(&cmd.name)
+                    .with_extension("stderr.log")
+                ).unwrap();
+
                 let stderr = Stdio::from(stderr);
                 let mut child = Self::spawn_process(
                     &cmd.name, &cmd.args,
@@ -120,8 +130,15 @@ impl Pipeline {
 
         // this is to pipe the stdout of the last command to the parent process
         let last_cmd = input.commands.last().unwrap();
-        let stderr = File::create(format!("{}/{}.stderr.log", input.working_dir, last_cmd.name)).unwrap();
+
+        let stderr = File::create(
+            stderr_path
+            .with_file_name(&last_cmd.name)
+            .with_extension("stderr.log")
+        ).unwrap();
+
         let stderr = Stdio::from(stderr);
+
         let child = Self::spawn_process(
             &last_cmd.name, &last_cmd.args,
             prev_stdout, Stdio::inherit(), stderr
