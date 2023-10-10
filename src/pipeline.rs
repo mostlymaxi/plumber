@@ -104,12 +104,16 @@ impl Pipeline {
         let mut jobs = Vec::new();
         let mut prev_stdout = Stdio::null();
 
+        let mut stderr_path = input.metadata_dir.clone();
+        stderr_path.push("tmp");
+
         let commands_exc_last = &input.commands[..input.commands.len() - 1];
 
         if !commands_exc_last.is_empty() {
+
             for cmd in commands_exc_last.iter() {
                 let stderr = File::create(
-                    input.metadata_dir
+                    stderr_path
                     .with_file_name(&cmd.name)
                     .with_extension("stderr.log")
                 ).unwrap();
@@ -128,7 +132,7 @@ impl Pipeline {
         let last_cmd = input.commands.last().unwrap();
 
         let stderr = File::create(
-            input.metadata_dir
+            stderr_path
             .with_file_name(&last_cmd.name)
             .with_extension("stderr.log")
         ).unwrap();

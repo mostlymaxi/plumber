@@ -18,7 +18,6 @@ use crate::pipeline::{Pipeline, PipelineInput};
 struct Args {
     #[command(subcommand)]
     command: Subargs,
-
 }
 
 #[derive(clap::Subcommand)]
@@ -31,9 +30,9 @@ enum Subargs {
     /// execute a pipeline from a string input
     Exec {
         /// raw pipeline string
-        pipeline: Vec<String>,
+        pipeline: String,
         /// path to metadata directory where stderr is logged
-        #[arg(short, long, default_value = "/tmp/plumber/leaky")]
+        #[arg(short, long, default_value = "/tmp/plumber/leaky/")]
         metadata_dir: PathBuf,
     },
 }
@@ -54,15 +53,17 @@ fn parse_plumber_file(path: &PathBuf) -> String {
     input
 }
 
-fn exec(pipeline: String, metadata_dir: PathBuf, shutdown: Arc<AtomicBool>) -> JoinHandle<()> {
+fn exec(pipeline: String, metadata_dir: PathBuf, shutdown: Arc<AtomicBool>) -> Option<JoinHandle<()>> {
+    if pipeline.trim().is_empty() { return None }
+
     fs::create_dir_all(&metadata_dir).expect("Failed to create metadata directory");
 
-    eprintln!("spawning pipeline: {}", pipeline);
+    eprintln!("spawning pipeline: {}", pipeline.trim());
     eprintln!("logging to => {}", metadata_dir.display());
 
     let input = PipelineInput::new(pipeline, metadata_dir);
     let pipeline = Pipeline::new(&input, shutdown.clone());
-    thread::spawn(move || pipeline.run())
+    Some(thread::spawn(move || pipeline.run()))
 }
 
 
@@ -77,18 +78,24 @@ fn run(path: PathBuf, shutdown: Arc<AtomicBool>) -> Vec<JoinHandle<()>>{
                 if !file.ends_with(".plumb") { continue }
 
                 let pipeline = parse_plumber_file(&file);
-                let mut metadata_dir = PathBuf::from("/var/log/");
+                let mut metadata_dir = PathBuf::from("/var/log/plumber/");
                 metadata_dir.push(file.file_stem().unwrap());
 
-                handles.push(exec(pipeline, metadata_dir, shutdown.clone()));
+                match exec(pipeline, metadata_dir, shutdown.clone()) {
+                    Some(h) => handles.push(h),
+                    None => eprintln!("WARNING: tried to execute empty pipeline string")
+                }
             }
         },
         false => {
             let pipeline = parse_plumber_file(&path);
-            let mut metadata_dir = PathBuf::from("/var/log/");
+            let mut metadata_dir = PathBuf::from("/var/log/plumber/");
             metadata_dir.push(path.file_stem().unwrap());
 
-            handles.push(exec(pipeline, metadata_dir, shutdown));
+            match exec(pipeline, metadata_dir, shutdown.clone()) {
+                Some(h) => handles.push(h),
+                None => eprintln!("WARNING: tried to execute empty pipeline string")
+            }
         }
     }
 
@@ -101,10 +108,10 @@ fn main() {
 
     match &args.command {
         Subargs::Exec { pipeline, metadata_dir } => {
-            let pipeline = pipeline.join(" ");
-            exec(pipeline, metadata_dir.into(), shutdown)
-                .join()
-                .expect("failed to join thread");
+            match exec(pipeline.into(), metadata_dir.into(), shutdown) {
+                Some(h) => h.join().expect("failed to join thread"),
+                None => eprintln!("WARNING: tried to execute empty pipeline string. Exiting...")
+            }
         },
         Subargs::Run { path } => {
             for thread in run(path.into(), shutdown) {
