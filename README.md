@@ -17,7 +17,7 @@ The purpose of plumber is to ensure that pipelines are robust against reboots an
 ## behavior
 - pipes imply that stdout is redirected to stdin of following program
 - plumber run defaults stderr logs to ```/var/log/plumber/<plumber file name>/<cmd>.stderr.log```
-- plumber exec defaults temporary stderr logs to ```/tmp/plumber/leaky/<cmd>.stderr.log``
+- plumber exec defaults temporary stderr logs to ```/tmp/plumber/leaky/<cmd>.stderr.log```
 - termination signals will be caught, sent to the FIRST program in the pipeline, and wait for completion
 
 ## modules
@@ -43,7 +43,7 @@ $ ^Cexiting gracefully...
 ```
 find stderr logs in ```/var/log/plumber/test_pipeline/tail.stderr.log, grep.stderr.log, wc.stderr.log```
 
-try rerunning the pipeline simply through bash and hitting ctr-c.
+try rerunning the pipeline simply through your regular shell and hitting ctr-c.
 ```
 $ tail -n 100 -f /usr/share/dict/words | grep 'a' | wc
 ^C
