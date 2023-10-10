@@ -30,7 +30,7 @@ create a test file with a pipeline of processes:
 ```
 $ echo "tail -n 100 -f /usr/share/dict/words | grep 'a' | wc" > test_pipeline.plumb
 ```
-run the pipeline with ```plumber run <PATH>``` (the user executing the command will need permission to write to /var/log/plumber)
+run the pipeline with ```plumber run <PATH>``` (the user executing the command will need permission to write to ```/var/log/plumber/```)
 ```
 $ plumber run test_pipeline.plumb
 spawning pipeline: tail -n 100 -f /usr/share/dict/words | grep 'a' | wc
