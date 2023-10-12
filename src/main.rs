@@ -1,16 +1,11 @@
-use std::fs::read_dir;
-
-use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
-use std::thread::JoinHandle;
-use std::{fs, thread};
-
-use signal_hook::consts::TERM_SIGNALS;
+use std::time::Duration;
+use std::{path::PathBuf, process::exit, fs, vec};
+use std::thread;
+use log::error;
 use clap::Parser;
 
 mod pipeline;
-use crate::pipeline::{Pipeline, PipelineInput};
+use crate::pipeline::Pipeline;
 
 /// unix pipelines made easy!
 #[derive(Parser)]
@@ -24,99 +19,156 @@ struct Args {
 enum Subargs {
     /// run pipelines from a plumber file
     Run {
-        /// path to plumber file or directory
+        /// path to plumber file or directory of files
         path: PathBuf,
     },
     /// execute a pipeline from a string input
     Exec {
         /// raw pipeline string
         pipeline: String,
-        /// path to metadata directory where stderr is logged
-        #[arg(short, long, default_value = "/tmp/plumber/leaky/")]
-        metadata_dir: PathBuf,
+        /// name to use for logging and metadata
+        #[arg(short, long)]
+        name: String,
     },
+    /// stop pipelines using a plumber file path
+    Stop {
+        /// path to plumber file or directory of files
+        path: PathBuf,
+        /// shutdown timeout in seconds
+        #[arg(short, long, default_value_t=30)]
+        timeout: u32,
+    }
 }
 
-fn register_shutdown() -> Arc<AtomicBool> {
-    let shutdown = Arc::new(AtomicBool::new(false));
-
-    for sig in TERM_SIGNALS {
-        signal_hook::flag::register(*sig, Arc::clone(&shutdown))
-            .expect("Failed to register shutdown");
+fn exec(name: String, pipeline: String) {
+    if pipeline.trim().is_empty() {
+        error!("tried to execute empty pipeline");
+        return;
     }
 
-    shutdown
+    let Ok(pipeline) = Pipeline::new(name.clone(), pipeline) else { return };
+
+    ctrlc::set_handler(move || {
+        if let Err(_) = Pipeline::stop(&name) {
+            log::error!("something went very wrong with the termination signal handler");
+            log::error!("this may cause the pipeline to continue running in the background!");
+            log::error!("you may be able to still gracefully kill the pipeline by finding the pid of the first \
+                        process in the pipeline and killing it manually");
+            exit(1);
+        }
+    }).unwrap();
+
+    pipeline.run();
 }
 
-fn parse_plumber_file(path: &PathBuf) -> String {
-    let input = fs::read_to_string(path).unwrap();
-    input
-}
-
-fn exec(pipeline: String, metadata_dir: PathBuf, shutdown: Arc<AtomicBool>) -> Option<JoinHandle<()>> {
-    if pipeline.trim().is_empty() { return None }
-
-    fs::create_dir_all(&metadata_dir).expect("Failed to create metadata directory");
-
-    eprintln!("spawning pipeline: {}", pipeline.trim());
-    eprintln!("logging to => {}", metadata_dir.display());
-
-    let input = PipelineInput::new(pipeline, metadata_dir);
-    let pipeline = Pipeline::new(&input, shutdown.clone());
-    Some(thread::spawn(move || pipeline.run()))
-}
-
-
-fn run(path: PathBuf, shutdown: Arc<AtomicBool>) -> Vec<JoinHandle<()>>{
-    let mut handles = Vec::new();
-
-    match path.is_dir() {
+fn stop(path: PathBuf, timeout: u32) {
+    let names = match path.is_dir() {
         true => {
-            for file in read_dir(path).unwrap() {
-                let file = file.unwrap().path();
-                if !file.is_file() { continue }
-                if !file.extension().is_some_and(|e| e.eq_ignore_ascii_case("plumb")){ continue }
+            let mut plumb_files = Vec::new();
+            for file in fs::read_dir(&path).unwrap() {
+                let Ok(file) = file else { continue };
+                let file = file.path();
+                if file.is_dir() { continue }
+                let Some(ext) = file.extension() else { continue };
+                if ext.eq_ignore_ascii_case("plumb") {
+                    let name = file.file_stem()
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .to_owned();
 
-                let pipeline = parse_plumber_file(&file);
-                let mut metadata_dir = PathBuf::from("/var/log/plumber/");
-                metadata_dir.push(file.file_stem().unwrap());
-
-                match exec(pipeline, metadata_dir, shutdown.clone()) {
-                    Some(h) => handles.push(h),
-                    None => eprintln!("WARNING: tried to execute empty pipeline string")
+                    plumb_files.push(name);
                 }
             }
+            plumb_files
         },
         false => {
-            let pipeline = parse_plumber_file(&path);
-            let mut metadata_dir = PathBuf::from("/var/log/plumber/");
-            metadata_dir.push(path.file_stem().unwrap());
+            let name = path.file_stem()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_owned();
 
-            match exec(pipeline, metadata_dir, shutdown.clone()) {
-                Some(h) => handles.push(h),
-                None => eprintln!("WARNING: tried to execute empty pipeline string")
+            vec![name]
+        }
+    };
+
+    for name in &names {
+        if let Err(e) = Pipeline::stop(&name) {
+            match e {
+                pipeline::PipelineError::FileNotFound => log::warn!("unabled to find pid for name '{}'", name),
+                pipeline::PipelineError::Other => log::error!("{:#?}", e),
             }
         }
     }
 
-    handles
+    for _ in 0..=timeout {
+        if !names.iter().any(|n| path.join(n).join(".pid").exists()) {
+            break;
+        }
+        thread::sleep(Duration::from_secs(1));
+    }
+}
+
+fn run(path: PathBuf) {
+
+    let files = match path.is_dir() {
+        true => {
+            let mut plumb_files = Vec::new();
+            for file in fs::read_dir(path).unwrap() {
+                let Ok(file) = file else { continue };
+                let file = file.path();
+                if file.is_dir() { continue }
+                let Some(ext) = file.extension() else { continue };
+                if ext.eq_ignore_ascii_case("plumb") {
+                    plumb_files.push(file);
+                }
+            }
+            plumb_files
+        },
+        false => vec![path]
+    };
+
+    let mut handles = Vec::new();
+    let mut names = Vec::new();
+    for f in files {
+        let Ok(pipeline) = Pipeline::new_from_file(&f) else { continue };
+        let name = pipeline.get_name();
+        handles.push(thread::spawn(move || pipeline.run()));
+        names.push(name);
+    }
+
+    ctrlc::set_handler(move || {
+        for name in &names {
+            if let Err(e) = Pipeline::stop(&name) {
+                log::error!("something went very wrong with the termination signal handler");
+                log::error!("this may cause the pipeline to continue running in the background!");
+                log::error!("you may be able to still gracefully kill the pipeline by finding the pid of the first \
+                            process in the pipeline and killing it manually");
+                log::error!("{:?}", e);
+            }
+        }
+    }).unwrap();
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
 }
 
 fn main() {
     let args = Args::parse();
-    let shutdown = register_shutdown();
+    env_logger::init();
 
     match &args.command {
-        Subargs::Exec { pipeline, metadata_dir } => {
-            match exec(pipeline.into(), metadata_dir.into(), shutdown) {
-                Some(h) => h.join().expect("failed to join thread"),
-                None => eprintln!("WARNING: tried to execute empty pipeline string. Exiting...")
-            }
+        Subargs::Exec { pipeline, name  } => {
+            exec(name.to_string(), pipeline.to_string());
         },
         Subargs::Run { path } => {
-            for thread in run(path.into(), shutdown) {
-                thread.join().expect("failed to join thread");
-            }
+            run(path.into());
+        },
+        Subargs::Stop { path , timeout} => {
+            stop(path.into(), *timeout);
         }
     }
 }
