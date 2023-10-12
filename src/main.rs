@@ -1,3 +1,4 @@
+use std::time::Duration;
 use std::{path::PathBuf, process::exit, fs, vec};
 use std::thread;
 use log::error;
@@ -29,6 +30,14 @@ enum Subargs {
         #[arg(short, long)]
         name: String,
     },
+    /// stop pipelines using a plumber file path
+    Stop {
+        /// path to plumber file
+        path: PathBuf,
+        /// shutdown timeout in seconds
+        #[arg(short, long, default_value_t=30)]
+        timeout: u32,
+    }
 }
 
 fn exec(name: String, pipeline: String) {
@@ -50,6 +59,55 @@ fn exec(name: String, pipeline: String) {
     }).unwrap();
 
     pipeline.run();
+}
+
+fn stop(path: PathBuf, timeout: u32) {
+    let names = match path.is_dir() {
+        true => {
+            let mut plumb_files = Vec::new();
+            for file in fs::read_dir(&path).unwrap() {
+                let Ok(file) = file else { continue };
+                let file = file.path();
+                if file.is_dir() { continue }
+                let Some(ext) = file.extension() else { continue };
+                if ext.eq_ignore_ascii_case("plumb") {
+                    let name = file.file_stem()
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .to_owned();
+
+                    plumb_files.push(name);
+                }
+            }
+            plumb_files
+        },
+        false => {
+            let name = path.file_stem()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_owned();
+
+            vec![name]
+        }
+    };
+
+    for name in &names {
+        if let Err(e) = Pipeline::stop(&name) {
+            match e {
+                pipeline::PipelineError::FileNotFound => log::warn!("unabled to find pid for name '{}'", name),
+                pipeline::PipelineError::Other => log::error!("{:#?}", e),
+            }
+        }
+    }
+
+    for _ in 0..=timeout {
+        if !names.iter().any(|n| path.join(n).join(".pid").exists()) {
+            break;
+        }
+        thread::sleep(Duration::from_secs(1));
+    }
 }
 
 fn run(path: PathBuf) {
@@ -108,6 +166,9 @@ fn main() {
         },
         Subargs::Run { path } => {
             run(path.into());
+        },
+        Subargs::Stop { path , timeout} => {
+            stop(path.into(), *timeout);
         }
     }
 }

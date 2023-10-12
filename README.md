@@ -17,7 +17,6 @@ The purpose of plumber is to ensure that pipelines are robust against reboots an
 ## behavior
 - pipes imply that stdout is redirected to stdin of following program
 - plumber run defaults stderr logs to ```/var/log/plumber/<plumber file name>/<cmd>.stderr.log```
-- plumber exec defaults temporary stderr logs to ```/tmp/plumber/leaky/<cmd>.stderr.log```
 - termination signals will be caught, sent to the FIRST program in the pipeline, and wait for completion
 
 ## modules
@@ -29,6 +28,10 @@ Note: This is different for the first process in a pipeline - it is expected tha
 create a test file with a pipeline of processes:
 ```
 $ echo "tail -n 100 -f /usr/share/dict/words | grep 'a' | wc" > test_pipeline.plumb
+```
+set the ```RUST_LOG``` environment variable to one of ```debug, info, warn, error``` to see logged messages in stderr
+```
+$ export RUST_LOG=debug
 ```
 run the pipeline with ```plumber run <PATH>``` (the user executing the command will need permission to write to ```/var/log/plumber/```)
 ```
