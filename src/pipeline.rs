@@ -5,8 +5,8 @@ use std::process::{Child, Stdio, Command};
 use std::os::unix::process::CommandExt;
 use log::error;
 
-const LOGGING_DIR: &str = "/var/log/plumber";
-const METADATA_DIR: &str = "/var/lib/plumber";
+const LOGGING_DIR: &str = "/tmp/plumber/log";
+const METADATA_DIR: &str = "/tmp/plumber/lib";
 
 #[derive(Debug, PartialEq)]
 struct PipelineCommand {

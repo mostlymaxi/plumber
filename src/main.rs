@@ -19,7 +19,7 @@ struct Args {
 enum Subargs {
     /// run pipelines from a plumber file
     Run {
-        /// path to plumber file
+        /// path to plumber file or directory of files
         path: PathBuf,
     },
     /// execute a pipeline from a string input
@@ -32,7 +32,7 @@ enum Subargs {
     },
     /// stop pipelines using a plumber file path
     Stop {
-        /// path to plumber file
+        /// path to plumber file or directory of files
         path: PathBuf,
         /// shutdown timeout in seconds
         #[arg(short, long, default_value_t=30)]
