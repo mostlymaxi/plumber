@@ -38,20 +38,23 @@ run the pipeline with ```plumber run <PATH>``` (the user executing the command w
 plumber run test_pipeline.plumb
 ```
 ```
-spawning pipeline: tail -n 100 -f /usr/share/dict/words | grep 'a' | wc
-logging to => /var/log/plumber/test_pipeline
+[2023-10-12T18:50:26Z INFO  plumber::pipeline] test_pipeline: executing pipeline => 'tail -n 100 -f /usr/share/dict/words | grep 'a' | wc'
+[2023-10-12T18:50:26Z INFO  plumber::pipeline] test_pipeline: logging command stderr to => '/var/log/plumber/test_pipeline/*.stderr.log'
+[2023-10-12T18:50:26Z DEBUG plumber::pipeline] test_pipeline: pid of first job in pipeline is 93476
 ```
 hit ctrl-c (or send any generic term signal) to gracefully stop the pipeline and get the stdout of the final command.
 ```
-$ ^Cexiting gracefully...
+^C[2023-10-12T18:50:58Z DEBUG plumber::pipeline] test_pipeline: stopping first process in pipeline => kill -SIGTERM 93476
+```
+stdout of the last command is streamed to the stdout of plumber to allow for chaining of pipelines. In this case we see the output of the ```wc``` command:
+```
       28      28     334
 ```
 find stderr logs in ```/var/log/plumber/test_pipeline/tail.stderr.log, grep.stderr.log, wc.stderr.log```
 
-try rerunning the pipeline simply through your regular shell and hitting ctr-c.
+try rerunning the pipeline simply through your regular shell and hitting ctrl-c.
 ```
-$ tail -n 100 -f /usr/share/dict/words | grep 'a' | wc
-^C
+tail -n 100 -f /usr/share/dict/words | grep 'a' | wc
 ```
 notice how there is no output as all the commands received the interrupt. With plumber you can be confident that data held in the buffers of intermediate processes will never be lost like this.
 
