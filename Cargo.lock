@@ -222,6 +222,7 @@ dependencies = [
  "ctrlc",
  "env_logger",
  "log",
+ "nix",
  "shlex",
 ]
 

@@ -1,4 +1,5 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, process::exit, fs, vec};
+use std::thread;
 use log::error;
 use clap::Parser;
 
@@ -36,14 +37,65 @@ fn exec(name: String, pipeline: String) {
         return;
     }
 
-    let pipeline = Pipeline::new(name, pipeline);
+    let Ok(pipeline) = Pipeline::new(name.clone(), pipeline) else { return };
+
+    ctrlc::set_handler(move || {
+        if let Err(_) = Pipeline::stop(&name) {
+            log::error!("something went very wrong with the termination signal handler");
+            log::error!("this may cause the pipeline to continue running in the background!");
+            log::error!("you may be able to still gracefully kill the pipeline by finding the pid of the first \
+                        process in the pipeline and killing it manually");
+            exit(1);
+        }
+    }).unwrap();
+
     pipeline.run();
 }
 
-
 fn run(path: PathBuf) {
-    let pipeline = Pipeline::new_from_file(&path);
-    pipeline.run();
+
+    let files = match path.is_dir() {
+        true => {
+            let mut plumb_files = Vec::new();
+            for file in fs::read_dir(path).unwrap() {
+                let Ok(file) = file else { continue };
+                let file = file.path();
+                if file.is_dir() { continue }
+                let Some(ext) = file.extension() else { continue };
+                if ext.eq_ignore_ascii_case("plumb") {
+                    plumb_files.push(file);
+                }
+            }
+            plumb_files
+        },
+        false => vec![path]
+    };
+
+    let mut handles = Vec::new();
+    let mut names = Vec::new();
+    for f in files {
+        let Ok(pipeline) = Pipeline::new_from_file(&f) else { continue };
+        let name = pipeline.get_name();
+        handles.push(thread::spawn(move || pipeline.run()));
+        names.push(name);
+    }
+
+    ctrlc::set_handler(move || {
+        for name in &names {
+            if let Err(e) = Pipeline::stop(&name) {
+                log::error!("something went very wrong with the termination signal handler");
+                log::error!("this may cause the pipeline to continue running in the background!");
+                log::error!("you may be able to still gracefully kill the pipeline by finding the pid of the first \
+                            process in the pipeline and killing it manually");
+                log::error!("{:?}", e);
+            }
+        }
+    }).unwrap();
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
 }
 
 fn main() {
