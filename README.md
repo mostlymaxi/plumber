@@ -27,15 +27,17 @@ Note: This is different for the first process in a pipeline - it is expected tha
 ## example
 create a test file with a pipeline of processes:
 ```
-$ echo "tail -n 100 -f /usr/share/dict/words | grep 'a' | wc" > test_pipeline.plumb
+echo "tail -n 100 -f /usr/share/dict/words | grep 'a' | wc" > test_pipeline.plumb
 ```
 set the ```RUST_LOG``` environment variable to one of ```debug, info, warn, error``` to see logged messages in stderr
 ```
-$ export RUST_LOG=debug
+export RUST_LOG=debug
 ```
 run the pipeline with ```plumber run <PATH>``` (the user executing the command will need permission to write to ```/var/log/plumber/```)
 ```
-$ plumber run test_pipeline.plumb
+plumber run test_pipeline.plumb
+```
+```
 spawning pipeline: tail -n 100 -f /usr/share/dict/words | grep 'a' | wc
 logging to => /var/log/plumber/test_pipeline
 ```
