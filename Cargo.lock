@@ -216,13 +216,12 @@ dependencies = [
 
 [[package]]
 name = "plumber-cli"
-version = "0.2.2"
+version = "0.3.1"
 dependencies = [
  "clap",
  "ctrlc",
  "env_logger",
  "log",
- "nix",
  "shlex",
 ]
 

@@ -1,6 +1,6 @@
 [package]
 name = "plumber-cli"
-version = "0.2.2"
+version = "0.3.1"
 authors = ["Maxi Saparov"]
 keywords = ["pipe", "pipeline"]
 categories = ["command-line-utilities"]
@@ -19,5 +19,4 @@ clap = { version = "4.4.6", features = ["derive"] }
 ctrlc = { version = "3.4.1", features = ["termination"] }
 env_logger = "0.10.0"
 log = "0.4.20"
-nix = { version = "0.27.1", features = ["signal"] }
 shlex = "1.2.0"
