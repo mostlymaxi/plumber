@@ -16,6 +16,7 @@ name = "plumber"
 
 [dependencies]
 clap = { version = "4.4.6", features = ["derive"] }
-nix = { version = "0.27.1", features = ["signal"] }
+ctrlc = { version = "3.4.1", features = ["termination"] }
+env_logger = "0.10.0"
+log = "0.4.20"
 shlex = "1.2.0"
-signal-hook = "0.3.17"

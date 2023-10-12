@@ -1,17 +1,9 @@
-use std::path::PathBuf;
-use std::process::{Command, Stdio, Child};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
+use std::fs;
+use std::process::{Child, Stdio, Command};
 use std::os::unix::process::CommandExt;
-use std::thread;
-use std::time::Duration;
-use std::fs::File;
-use nix::unistd::Pid;
-use nix::sys::signal;
-use nix::sys::signal::Signal;
+use log::error;
 
-// Convenience structure to split command vector (cat a_file) into a
-// command name (cat) and arguments ([a_file]).
 struct PipelineCommand {
     name: String,
     args: Vec<String>,
@@ -29,17 +21,18 @@ impl PipelineCommand {
     }
 }
 
-// Future proof if pipeline needs more than a vector of commands as input.
-// Maybe some sort of settings in the pipeline file?
-pub struct PipelineInput {
-    _input_string: String,
-    metadata_dir: PathBuf,
+pub struct Pipeline {
+    _name: String,
+    raw_pipeline: String,
     commands: Vec<PipelineCommand>,
+    jobs: Vec<Child>,
+    _metadata_dir: PathBuf,
+    logging_dir: PathBuf,
 }
 
-impl PipelineInput {
-    pub fn new(input_string: String, metadata_dir: PathBuf) -> PipelineInput {
-        let split_on_pipe = input_string.split('|'); // split pipes
+impl Pipeline {
+    fn parse_raw_pipeline(raw_pipeline: &str) -> Vec<PipelineCommand> {
+        let split_on_pipe = raw_pipeline.split('|'); // split pipes
 
         let split_on_whitespace: Vec<Vec<String>> = split_on_pipe.map(|cmd_string|
             shlex::split(cmd_string)
@@ -51,36 +44,40 @@ impl PipelineInput {
             PipelineCommand::new(cmd))
             .collect();
 
-        PipelineInput {
-            _input_string: input_string,
-            metadata_dir,
-            commands
+        assert!(!commands.is_empty(), "unable to parse commands - empty list: {}", raw_pipeline);
+
+        commands
+    }
+
+    pub fn new(name: String, raw_pipeline: String) -> Self {
+        let commands = Pipeline::parse_raw_pipeline(&raw_pipeline);
+        let metadata_dir = Path::new("/var/lib/plumber").join(&name);
+        let logging_dir = Path::new("/var/log/plumber").join(&name);
+        create_dir_with_nice_error(&metadata_dir);
+        create_dir_with_nice_error(&logging_dir);
+
+        Pipeline {
+            _name: name,
+            raw_pipeline,
+            commands,
+            jobs: Vec::new(),
+            _metadata_dir: metadata_dir,
+            logging_dir
         }
     }
-}
 
-pub struct Pipeline {
-    shutdown: Arc<AtomicBool>,
-    jobs: Vec<Child>,
-}
+    pub fn new_from_file(path: &Path) -> Self {
+        let name = path.file_stem()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_owned();
 
-impl Drop for Pipeline {
-    fn drop(&mut self) {
-        // if we get term signal, kill ONLY the first job.
-        // this ensures all data in the pipeline is processed to the end.
-        if self.shutdown.load(Ordering::Relaxed) {
-            eprintln!("exiting gracefully...");
-            let pid = self.jobs.first().unwrap().id();
-            signal::kill(Pid::from_raw(pid.try_into().unwrap()), Signal::SIGTERM).unwrap();
-        }
+        let raw_pipeline = fs::read_to_string(path).unwrap();
 
-        for jobs in &mut self.jobs {
-            jobs.wait().unwrap();
-        }
+        Self::new(name, raw_pipeline)
     }
-}
 
-impl Pipeline {
     fn spawn_process(
         name: &String,
         args: &Vec<String>,
@@ -100,66 +97,86 @@ impl Pipeline {
             .expect(&format!("Failed to spawn command: {} {}", name, args.join(" ")))
     }
 
-    pub fn new(input: &PipelineInput, shutdown: Arc<AtomicBool>) -> Pipeline {
-        let mut jobs = Vec::new();
-        let mut prev_stdout = Stdio::null();
+    fn spawn_all(&mut self) {
+        let mut prev_stdout = Stdio::inherit();
 
-        let mut stderr_path = input.metadata_dir.clone();
-        stderr_path.push("tmp");
+        let commands_except_last = &self.commands[..self.commands.len() - 1];
+        for cmd in commands_except_last.iter() {
+            let stderr_out = fs::File::create(&self.logging_dir
+                        .join(&cmd.name)
+                        .with_extension("stderr.log"))
+                        .unwrap();
 
-        let commands_exc_last = &input.commands[..input.commands.len() - 1];
+            let stderr_out = Stdio::from(stderr_out);
 
-        if !commands_exc_last.is_empty() {
-
-            for cmd in commands_exc_last.iter() {
-                let stderr = File::create(
-                    stderr_path
-                    .with_file_name(&cmd.name)
-                    .with_extension("stderr.log")
-                ).unwrap();
-
-                let stderr = Stdio::from(stderr);
-                let mut child = Self::spawn_process(
-                    &cmd.name, &cmd.args,
-                    prev_stdout, Stdio::piped(), stderr
-                );
-                prev_stdout = Stdio::from(child.stdout.take().unwrap());
-                jobs.push(child);
-            }
+            let mut child = Self::spawn_process(
+                &cmd.name, &cmd.args,
+                prev_stdout, Stdio::piped(), stderr_out
+            );
+            prev_stdout = Stdio::from(child.stdout.take().unwrap());
+            self.jobs.push(child);
         }
 
         // this is to pipe the stdout of the last command to the parent process
-        let last_cmd = input.commands.last().unwrap();
+        let last_cmd = self.commands.last().unwrap();
 
-        let stderr = File::create(
-            stderr_path
-            .with_file_name(&last_cmd.name)
+        let stderr_out = fs::File::create(&self.logging_dir
+            .join(&last_cmd.name)
             .with_extension("stderr.log")
         ).unwrap();
 
-        let stderr = Stdio::from(stderr);
+        let stderr_out = Stdio::from(stderr_out);
 
         let child = Self::spawn_process(
             &last_cmd.name, &last_cmd.args,
-            prev_stdout, Stdio::inherit(), stderr
+            prev_stdout, Stdio::inherit(), stderr_out
         );
-        jobs.push(child);
-
-        Pipeline { shutdown, jobs }
-    }
-
-    fn busy_wait_and_sleep(&mut self, seconds: u64) -> bool {
-        thread::sleep(Duration::from_secs(seconds));
-        match self.jobs.last_mut().unwrap().try_wait() {
-            Ok(Some(_)) => true,
-            Ok(None) => false,
-            Err(err) => panic!("{}", err)
-        }
+        self.jobs.push(child);
     }
 
     pub fn run(mut self) {
-        while !self.shutdown.load(Ordering::Relaxed) {
-            if self.busy_wait_and_sleep(2) { break }
+        log::info!("executing pipeline: {}", &self.raw_pipeline.trim());
+        log::info!("logging command stderr to: {}", &self.logging_dir.join("*.stderr.log").display());
+        self.spawn_all();
+
+        let first_job_pid = self.jobs.first()
+            .unwrap()
+            .id()
+            .to_string();
+
+        log::debug!("pid of first job in pipeline is {}", &first_job_pid);
+
+        // let mut pid_file = fs::File::create(&self.metadata_dir.join(".pid")).unwrap();
+        // pid_file.write_all(first_job_pid.as_bytes()).unwrap();
+        // pid_file.flush();
+
+        ctrlc::set_handler(move || {
+            log::debug!("caught termination signal... attempting graceful exit");
+            log::debug!("executing: kill -SIGTERM {first_job_pid}");
+            let _ = Command::new("kill")
+                .arg("-SIGTERM")
+                .arg(&first_job_pid)
+                .status()
+                .unwrap();
+        }).unwrap();
+
+        for jobs in &mut self.jobs {
+            jobs.wait().unwrap();
+        }
+    }
+}
+
+fn create_dir_with_nice_error(dir: &Path) {
+    match fs::create_dir_all(dir) {
+        Ok(_) => {},
+        Err(e) => match e.kind() {
+            std::io::ErrorKind::PermissionDenied => {
+                error!("plumber requires permission to write in {}",
+                       dir.parent().unwrap().display());
+                error!("recommended to have user that executes plumber to own this directory");
+                panic!("{e}");
+            },
+            k => panic!("{e} {k}"),
         }
     }
 }
