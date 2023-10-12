@@ -1,6 +1,6 @@
 [package]
 name = "plumber-cli"
-version = "0.3.1"
+version = "0.3.2"
 authors = ["Maxi Saparov"]
 keywords = ["pipe", "pipeline"]
 categories = ["command-line-utilities"]
