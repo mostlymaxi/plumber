@@ -1,9 +1,11 @@
+use std::path::Path;
 use std::time::Duration;
 use std::{path::PathBuf, process::exit, fs, vec};
 use std::thread;
 use log::error;
 use clap::Parser;
 
+mod utils;
 mod pipeline;
 use crate::pipeline::Pipeline;
 
@@ -39,6 +41,7 @@ enum Subargs {
         timeout: u32,
     }
 }
+
 
 fn exec(name: String, pipeline: String) {
     if pipeline.trim().is_empty() {
@@ -113,39 +116,43 @@ fn stop(path: PathBuf, timeout: u32) {
 fn run(path: PathBuf) {
 
     let files = match path.is_dir() {
-        true => {
-            let mut plumb_files = Vec::new();
-            for file in fs::read_dir(path).unwrap() {
-                let Ok(file) = file else { continue };
-                let file = file.path();
-                if file.is_dir() { continue }
-                let Some(ext) = file.extension() else { continue };
-                if ext.eq_ignore_ascii_case("plumb") {
-                    plumb_files.push(file);
-                }
-            }
-            plumb_files
-        },
+        true => fs::read_dir(path).unwrap()
+            .filter_map(|f| f.ok())
+            .map(|f| f.path())
+            .filter(|f| f.is_file())
+            .filter(|f| f.extension().map(|e| e == "plumb").unwrap_or(false))
+            .collect(),
         false => vec![path]
     };
 
+    log::trace!("found files {:?}", &files);
+
+    let mut pipelines = Vec::new();
+    let mut names: Vec<String> = Vec::new();
     let mut handles = Vec::new();
-    let mut names = Vec::new();
+
     for f in files {
-        let Ok(pipeline) = Pipeline::new_from_file(&f) else { continue };
-        let name = pipeline.get_name();
+        let Ok(pf) = utils::PlumberFile::try_from(f.clone()) else {
+            log::warn!("failed to parse plumber file: {}... skipping.", f.display());
+            continue;
+        };
+
+        pf.save_to(&Path::new(pipeline::RUNNING_DIR).join(&pf.name));
+        pipelines.push(Pipeline::from(pf));
+    }
+
+    for pipeline in pipelines {
+        names.push(pipeline.get_name());
         handles.push(thread::spawn(move || pipeline.run()));
-        names.push(name);
     }
 
     ctrlc::set_handler(move || {
         for name in &names {
             if let Err(e) = Pipeline::stop(&name) {
-                log::error!("something went very wrong with the termination signal handler");
+                log::error!("something went wrong with the termination signal handler: {:?}", e);
                 log::error!("this may cause the pipeline to continue running in the background!");
                 log::error!("you may be able to still gracefully kill the pipeline by finding the pid of the first \
                             process in the pipeline and killing it manually");
-                log::error!("{:?}", e);
             }
         }
     }).unwrap();
@@ -158,7 +165,8 @@ fn run(path: PathBuf) {
 
 fn main() {
     let args = Args::parse();
-    env_logger::init();
+    env_logger::init_from_env(
+        env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "info"));
 
     match &args.command {
         Subargs::Exec { pipeline, name  } => {
