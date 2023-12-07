@@ -36,7 +36,8 @@ plumber run test_pipeline.plumb
 ```
 gracefully stop the pipeline with ```plumber stop <NAME>``` or hitting Ctrl+C in the main process window
 ```
-^C[2023-12-07T19:31:57Z INFO  plumber::pipeline] (test_pipeline) exiting gracefully...```
+^C[2023-12-07T19:31:57Z INFO  plumber::pipeline] (test_pipeline) exiting gracefully...
+```
 stdout of the last command is streamed to the stdout of plumber to allow for chaining of pipelines. In this case we see the output of the ```wc``` command:
 ```
       28      28     334
