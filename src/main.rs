@@ -147,11 +147,10 @@ fn run(path: PathBuf) {
     ctrlc::set_handler(move || {
         for name in &names {
             if let Err(e) = Pipeline::stop(&name) {
-                log::error!("something went very wrong with the termination signal handler");
+                log::error!("something went wrong with the termination signal handler: {:?}", e);
                 log::error!("this may cause the pipeline to continue running in the background!");
                 log::error!("you may be able to still gracefully kill the pipeline by finding the pid of the first \
                             process in the pipeline and killing it manually");
-                log::error!("{:?}", e);
             }
         }
     }).unwrap();
@@ -164,7 +163,8 @@ fn run(path: PathBuf) {
 
 fn main() {
     let args = Args::parse();
-    env_logger::init();
+    env_logger::init_from_env(
+        env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "info"));
 
     match &args.command {
         Subargs::Exec { pipeline, name  } => {

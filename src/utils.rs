@@ -86,10 +86,6 @@ impl PlumberFile {
     }
 }
 
-// struct PipelineMeta {
-//     plumber_files: Vec<PathBuf>,
-// }
-
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;

@@ -3,12 +3,10 @@ use std::path::{Path, PathBuf};
 use std::fs;
 use std::process::{Child, Stdio, Command};
 use std::os::unix::process::CommandExt;
-use log::error;
 
 use crate::utils::PlumberFile;
 
 pub const LOGGING_DIR: &str = "/tmp/plumber/log";
-// pub const METADATA_DIR: &str = "/tmp/plumber/lib";
 pub const RUNNING_DIR: &str = "/tmp/plumber/run";
 
 #[derive(Debug, PartialEq)]
@@ -31,7 +29,6 @@ pub struct Pipeline {
     raw_pipeline: String,
     commands: Vec<PipelineCommand>,
     jobs: Vec<Child>,
-    // metadata_dir: PathBuf,
     logging_dir: PathBuf,
 }
 
@@ -57,12 +54,6 @@ impl From<PlumberFile> for Pipeline {
         let commands = Self::parse_raw_pipeline(&raw_pipeline);
         let jobs = Vec::new();
 
-        // let metadata_dir = Path::new(&pf.config.metadata
-        //     .as_ref()
-        //     .and_then(|m| m.metadata_dir.clone())
-        //     .unwrap_or(METADATA_DIR.to_string()))
-        //     .join(&name);
-
         let logging_dir = Path::new(&pf.config.metadata
             .and_then(|m| m.logging_dir.clone())
             .unwrap_or(LOGGING_DIR.to_string()))
@@ -76,16 +67,16 @@ impl Pipeline {
     pub fn stop(name: &str) -> Result<(), PipelineError> {
         let running_dir = Path::new(RUNNING_DIR).join(&name);
         let pid_file = running_dir.join(".pid");
-        log::trace!("pid_file: {}", &pid_file.display());
+
+        log::debug!("({name}) reading pid file: {}", &pid_file.display());
         let first_job_pid = fs::read_to_string(&pid_file)?;
 
-        log::debug!("{name}: stopping first process in pipeline => kill -SIGTERM {first_job_pid}");
-        let _ = Command::new("kill")
-            .arg("-SIGTERM")
-            .arg(&first_job_pid)
-            .status()?;
-
-        fs::remove_file(pid_file).unwrap();
+        log::info!("({name}) exiting gracefully...");
+        log::debug!("({name}) killing first process in pipeline: 'kill -SIGTERM {first_job_pid}'");
+        Command::new("kill")
+                .arg("-SIGTERM")
+                .arg(&first_job_pid)
+                .status()?;
 
         Ok(())
     }
@@ -119,17 +110,13 @@ impl Pipeline {
 
     pub fn new(name: String, raw_pipeline: String) -> Result<Self, PipelineError> {
         let commands = Pipeline::parse_raw_pipeline(&raw_pipeline);
-        // let metadata_dir = Path::new(METADATA_DIR).join(&name);
-        // create_dir_with_nice_error(&metadata_dir)?;
         let logging_dir = Path::new(LOGGING_DIR).join(&name);
-        create_dir_with_nice_error(&logging_dir)?;
 
         Ok(Pipeline {
             name,
             raw_pipeline,
             commands,
             jobs: Vec::new(),
-            // metadata_dir,
             logging_dir
         })
     }
@@ -191,16 +178,13 @@ impl Pipeline {
     }
 
     pub fn run(mut self) {
-        // create_dir_with_nice_error(&self.metadata_dir).unwrap();
-        create_dir_with_nice_error(&self.logging_dir).unwrap();
-
-        log::info!("{}: executing pipeline => '{}'", &self.name, &self.raw_pipeline.trim());
-        log::info!("{}: logging command stderr to => '{}'", &self.name, &self.logging_dir.join("*.stderr.log").display());
+        log::info!("({}) executing pipeline: '{}'", &self.name, &self.raw_pipeline.trim());
+        log::info!("({}) logging command stderr to: '{}'", &self.name, &self.logging_dir.join("*.stderr.log").display());
         self.spawn_all();
 
         let first_job_pid = self.get_first_pid();
 
-        log::debug!("{}: pid of first job in pipeline is {}", &self.name, &first_job_pid);
+        log::info!("({}) pid of first job in pipeline is: {}", &self.name, &first_job_pid);
 
         let running_dir = Path::new(RUNNING_DIR).join(&self.name);
         fs::create_dir_all(&running_dir).unwrap();
@@ -209,31 +193,19 @@ impl Pipeline {
         pid_file.write_all(first_job_pid.as_bytes()).unwrap();
         pid_file.flush().unwrap();
 
+        log::info!("({}) gracefully stop pipeline with: 'plumber stop {}'", &self.name, &self.name);
+
         for jobs in &mut self.jobs {
             jobs.wait().unwrap();
         }
 
         drop(pid_file);
+        fs::remove_file(&running_dir.join(".pid")).unwrap();
         fs::remove_file(&running_dir.join(".data")).unwrap();
         fs::remove_dir(&running_dir).unwrap()
     }
 }
 
-fn create_dir_with_nice_error(dir: &Path) -> Result<(), std::io::Error> {
-    log::trace!("creating directory: {:?}", dir);
-    match fs::create_dir_all(dir) {
-        Ok(_) => Ok(()),
-        Err(e) => match e.kind() {
-            std::io::ErrorKind::PermissionDenied => {
-                error!("plumber requires permission to write in {}",
-                       dir.parent().unwrap().display());
-                error!("recommended to have user that executes plumber to own this directory");
-                Err(e)
-            },
-            _ => Err(e),
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -248,7 +220,7 @@ mod tests {
         init();
         let path = Path::new(LOGGING_DIR);
         let test_dir = "asdf_plumber_test";
-        create_dir_with_nice_error(&path.join(test_dir)).unwrap();
+        fs::create_dir_all(&path.join(test_dir)).unwrap();
         fs::remove_dir(&path.join(test_dir)).unwrap();
     }
 
@@ -258,7 +230,7 @@ mod tests {
         let path = Path::new(RUNNING_DIR);
         let test_dir = "asdf_plumber_test";
         let path = &path.join(test_dir);
-        create_dir_with_nice_error(path).unwrap();
+        fs::create_dir_all(path).unwrap();
         fs::remove_dir(path).unwrap();
     }
 
@@ -268,7 +240,7 @@ mod tests {
         let path = Path::new(RUNNING_DIR);
         let test_dir = "asdf_plumber_test_2";
         let path = &path.join(test_dir);
-        create_dir_with_nice_error(path).unwrap();
+        fs::create_dir_all(path).unwrap();
 
         let mut pid_file = fs::File::create(path.join(".pid")).unwrap();
         pid_file.write_all("12345".as_bytes()).unwrap();
