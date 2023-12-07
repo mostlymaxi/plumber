@@ -22,25 +22,21 @@ The purpose of plumber is to ensure that pipelines are robust against reboots an
 ## example
 create a test file with a pipeline of processes:
 ```
-echo "tail -n 100 -f /usr/share/dict/words | grep 'a' | wc" > test_pipeline.plumb
-```
-set the ```RUST_LOG``` environment variable to one of ```debug, info, warn, error``` to see logged messages in stderr
-```
-export RUST_LOG=debug
+echo "exec = 'tail -n 100 -f /usr/share/dict/words | grep a | wc'" > test_pipeline.plumb
 ```
 run the pipeline with ```plumber run <PATH>```
 ```
 plumber run test_pipeline.plumb
 ```
 ```
-[2023-10-12T18:50:26Z INFO  plumber::pipeline] test_pipeline: executing pipeline => 'tail -n 100 -f /usr/share/dict/words | grep 'a' | wc'
-[2023-10-12T18:50:26Z INFO  plumber::pipeline] test_pipeline: logging command stderr to => '/tmp/plumber/log/test_pipeline/*.stderr.log'
-[2023-10-12T18:50:26Z DEBUG plumber::pipeline] test_pipeline: pid of first job in pipeline is 93476
+[2023-12-07T19:31:43Z INFO  plumber::pipeline] (test_pipeline) executing pipeline: 'tail -n 100 -f /usr/share/dict/words | grep a | wc'
+[2023-12-07T19:31:43Z INFO  plumber::pipeline] (test_pipeline) logging command stderr to: '/tmp/plumber/log/test_pipeline/*.stderr.log'
+[2023-12-07T19:31:43Z INFO  plumber::pipeline] (test_pipeline) pid of first job in pipeline is: 30251
+[2023-12-07T19:31:43Z INFO  plumber::pipeline] (test_pipeline) gracefully stop pipeline with: 'plumber stop test_pipeline'
 ```
-hit ctrl-c (or send any generic term signal) to gracefully stop the pipeline and get the stdout of the final command.
+gracefully stop the pipeline with ```plumber stop <NAME>``` or hitting Ctrl+C in the main process window
 ```
-^C[2023-10-12T18:50:58Z DEBUG plumber::pipeline] test_pipeline: stopping first process in pipeline => kill -SIGTERM 93476
-```
+^C[2023-12-07T19:31:57Z INFO  plumber::pipeline] (test_pipeline) exiting gracefully...```
 stdout of the last command is streamed to the stdout of plumber to allow for chaining of pipelines. In this case we see the output of the ```wc``` command:
 ```
       28      28     334
