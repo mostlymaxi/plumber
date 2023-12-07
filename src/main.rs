@@ -1,9 +1,11 @@
+use std::path::Path;
 use std::time::Duration;
 use std::{path::PathBuf, process::exit, fs, vec};
 use std::thread;
 use log::error;
 use clap::Parser;
 
+mod utils;
 mod pipeline;
 use crate::pipeline::Pipeline;
 
@@ -39,6 +41,7 @@ enum Subargs {
         timeout: u32,
     }
 }
+
 
 fn exec(name: String, pipeline: String) {
     if pipeline.trim().is_empty() {
@@ -113,29 +116,32 @@ fn stop(path: PathBuf, timeout: u32) {
 fn run(path: PathBuf) {
 
     let files = match path.is_dir() {
-        true => {
-            let mut plumb_files = Vec::new();
-            for file in fs::read_dir(path).unwrap() {
-                let Ok(file) = file else { continue };
-                let file = file.path();
-                if file.is_dir() { continue }
-                let Some(ext) = file.extension() else { continue };
-                if ext.eq_ignore_ascii_case("plumb") {
-                    plumb_files.push(file);
-                }
-            }
-            plumb_files
-        },
+        true => fs::read_dir(path).unwrap()
+            .filter_map(|f| f.ok())
+            .map(|f| f.path())
+            .filter(|f| f.is_dir())
+            .filter(|f| f.extension().map(|e| e == "plumb").unwrap_or(false))
+            .collect(),
         false => vec![path]
     };
 
+    let mut pipelines = Vec::new();
+    let mut names: Vec<String> = Vec::new();
     let mut handles = Vec::new();
-    let mut names = Vec::new();
+
     for f in files {
-        let Ok(pipeline) = Pipeline::new_from_file(&f) else { continue };
-        let name = pipeline.get_name();
+        let Ok(pf) = utils::PlumberFile::try_from(f.clone()) else {
+            log::warn!("Failed to parse plumber file: {}... skipping.", f.display());
+            continue;
+        };
+
+        pf.save_to(&Path::new(pipeline::RUNNING_DIR).join(&pf.name));
+        pipelines.push(Pipeline::from(pf));
+    }
+
+    for pipeline in pipelines {
+        names.push(pipeline.get_name());
         handles.push(thread::spawn(move || pipeline.run()));
-        names.push(name);
     }
 
     ctrlc::set_handler(move || {
