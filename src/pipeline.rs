@@ -141,6 +141,8 @@ impl Pipeline {
     }
 
     fn spawn_all(&mut self) {
+        assert!(&self.logging_dir.exists());
+
         let mut prev_stdout = Stdio::inherit();
 
         let commands_except_last = &self.commands[..self.commands.len() - 1];
@@ -180,14 +182,15 @@ impl Pipeline {
     pub fn run(mut self) {
         log::info!("({}) executing pipeline: '{}'", &self.name, &self.raw_pipeline.trim());
         log::info!("({}) logging command stderr to: '{}'", &self.name, &self.logging_dir.join("*.stderr.log").display());
-        self.spawn_all();
-
-        let first_job_pid = self.get_first_pid();
-
-        log::info!("({}) pid of first job in pipeline is: {}", &self.name, &first_job_pid);
 
         let running_dir = Path::new(RUNNING_DIR).join(&self.name);
         fs::create_dir_all(&running_dir).unwrap();
+        fs::create_dir_all(&self.logging_dir).unwrap();
+
+        self.spawn_all();
+
+        let first_job_pid = self.get_first_pid();
+        log::info!("({}) pid of first job in pipeline is: {}", &self.name, &first_job_pid);
 
         let mut pid_file = fs::File::create(&running_dir.join(".pid")).unwrap();
         pid_file.write_all(first_job_pid.as_bytes()).unwrap();
