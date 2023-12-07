@@ -119,11 +119,13 @@ fn run(path: PathBuf) {
         true => fs::read_dir(path).unwrap()
             .filter_map(|f| f.ok())
             .map(|f| f.path())
-            .filter(|f| f.is_dir())
+            .filter(|f| f.is_file())
             .filter(|f| f.extension().map(|e| e == "plumb").unwrap_or(false))
             .collect(),
         false => vec![path]
     };
+
+    log::trace!("found files {:?}", &files);
 
     let mut pipelines = Vec::new();
     let mut names: Vec<String> = Vec::new();
@@ -131,7 +133,7 @@ fn run(path: PathBuf) {
 
     for f in files {
         let Ok(pf) = utils::PlumberFile::try_from(f.clone()) else {
-            log::warn!("Failed to parse plumber file: {}... skipping.", f.display());
+            log::warn!("failed to parse plumber file: {}... skipping.", f.display());
             continue;
         };
 
