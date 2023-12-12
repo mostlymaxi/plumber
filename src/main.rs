@@ -39,6 +39,44 @@ enum Subargs {
         /// shutdown timeout in seconds
         #[arg(short, long, default_value_t=30)]
         timeout: u32,
+    },
+    /// list running pipelines
+    Ls
+}
+
+fn ls() {
+    let dir = fs::read_dir(Path::new(pipeline::RUNNING_DIR)).unwrap();
+
+    eprintln!("{: ^25} | {: ^14} | {: ^10}", "name", "time elapsed", "test");
+    eprintln!("{:-^26}|{:-^16}|{:-^10}", "", "", "");
+
+    for file in dir {
+        let Ok(file) = file else {
+            continue
+        };
+
+        let elapsed = file.metadata()
+            .unwrap()
+            .modified()
+            .unwrap()
+            .elapsed()
+            .unwrap()
+            .as_secs();
+
+        let hours = elapsed / (60 * 60);
+        let elapsed = elapsed % (60 * 60);
+        let minutes = elapsed / (60);
+        let seconds = elapsed % 60;
+
+        let time = format!("{:0>2}:{:0>2}:{:0>2}", hours, minutes, seconds);
+        let name = file.file_name();
+        let name = name.to_str().unwrap();
+        let name = match name.len() > 25 {
+            true => &name[..25],
+            false => name,
+        };
+
+        eprintln!("{: ^25} | {: ^14} | {: ^10}", name, time, "test");
     }
 }
 
@@ -178,5 +216,6 @@ fn main() {
         Subargs::Stop { path , timeout} => {
             stop(path.into(), *timeout);
         }
+        Subargs::Ls => ls(),
     }
 }
