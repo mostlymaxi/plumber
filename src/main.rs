@@ -91,7 +91,7 @@ fn exec(name: String, pipeline: String) {
 
     let running_dir = Path::new(pipeline::RUNNING_DIR).join(&name);
     fs::create_dir_all(&running_dir).unwrap();
-    fs::File::create(&running_dir
+    fs::File::create(running_dir
         .join(".data"))
         .expect("failed to create file to store PlumberFile struct");
 
