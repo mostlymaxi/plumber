@@ -63,8 +63,8 @@ impl TryFrom<PathBuf> for PlumberFile {
             Some(name) => name,
             None => {
                 let name = path.file_stem().ok_or(PlumberFileError::NotFound)?;
-                let name = name.to_str().ok_or(PlumberFileError::NotFound)?.to_string();
-                name
+
+                name.to_str().ok_or(PlumberFileError::NotFound)?.to_string()
             }
         };
         Ok(PlumberFile { path, name, config })

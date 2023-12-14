@@ -54,10 +54,11 @@ impl From<PlumberFile> for Pipeline {
         let commands = Self::parse_raw_pipeline(&raw_pipeline);
         let jobs = Vec::new();
 
-        let logging_dir = Path::new(&pf.config.metadata
+        let logging_dir = &pf.config.metadata
             .and_then(|m| m.logging_dir.clone())
-            .unwrap_or(LOGGING_DIR.to_string()))
-            .join(&name);
+            .unwrap_or(LOGGING_DIR.to_string());
+
+        let logging_dir = Path::new(logging_dir).join(&name);
 
         Pipeline { name, raw_pipeline, commands, jobs, logging_dir }
     }
@@ -65,7 +66,7 @@ impl From<PlumberFile> for Pipeline {
 
 impl Pipeline {
     pub fn stop(name: &str) -> Result<(), PipelineError> {
-        let running_dir = Path::new(RUNNING_DIR).join(&name);
+        let running_dir = Path::new(RUNNING_DIR).join(name);
         let pid_file = running_dir.join(".pid");
 
         log::debug!("({name}) reading pid file: {}", &pid_file.display());
@@ -137,7 +138,7 @@ impl Pipeline {
             .stderr(stderr)
             .process_group(0)
             .spawn()
-            .expect(&format!("Failed to spawn command: {} {}", name, args.join(" ")))
+            .unwrap_or_else(|_| panic!("Failed to spawn command: {} {}", name, args.join(" ")))
     }
 
     fn spawn_all(&mut self) {
@@ -165,7 +166,7 @@ impl Pipeline {
         // this is to pipe the stdout of the last command to the parent process
         let last_cmd = self.commands.last().unwrap();
 
-        let stderr_out = fs::File::create(&self.logging_dir
+        let stderr_out = fs::File::create(self.logging_dir
             .join(&last_cmd.name)
             .with_extension("stderr.log")
         ).unwrap();
@@ -203,9 +204,17 @@ impl Pipeline {
         }
 
         drop(pid_file);
-        fs::remove_file(&running_dir.join(".pid")).unwrap();
-        fs::remove_file(&running_dir.join(".data")).unwrap();
-        fs::remove_dir(&running_dir).unwrap()
+        if let Err(e) = fs::remove_file(running_dir.join(".pid")) {
+            log::error!("({}) failed to remove pid file: {}", &self.name, e);
+        };
+        if let Err(e) = fs::remove_file(running_dir.join(".data")) {
+            log::error!("({}) failed to remove data file: {}", &self.name, e);
+        };
+        if let Err(e) = fs::remove_dir(&running_dir) {
+            log::error!("({}) failed to remove running directory: {}", &self.name, e);
+        }
+
+        log::info!("({}) done!", &self.name);
     }
 }
 
@@ -223,8 +232,8 @@ mod tests {
         init();
         let path = Path::new(LOGGING_DIR);
         let test_dir = "asdf_plumber_test";
-        fs::create_dir_all(&path.join(test_dir)).unwrap();
-        fs::remove_dir(&path.join(test_dir)).unwrap();
+        fs::create_dir_all(path.join(test_dir)).unwrap();
+        fs::remove_dir(path.join(test_dir)).unwrap();
     }
 
     #[test]
@@ -249,7 +258,7 @@ mod tests {
         pid_file.write_all("12345".as_bytes()).unwrap();
         pid_file.flush().unwrap();
         drop(pid_file);
-        fs::remove_file(&path.join(".pid")).unwrap();
+        fs::remove_file(path.join(".pid")).unwrap();
         fs::remove_dir(path).unwrap();
     }
 

@@ -39,6 +39,44 @@ enum Subargs {
         /// shutdown timeout in seconds
         #[arg(short, long, default_value_t=30)]
         timeout: u32,
+    },
+    /// list running pipelines
+    Ls
+}
+
+fn ls() {
+    let dir = fs::read_dir(Path::new(pipeline::RUNNING_DIR)).unwrap();
+
+    eprintln!("{: ^25} | {: ^14} | {: ^10}", "name", "time elapsed", "test");
+    eprintln!("{:-^26}|{:-^16}|{:-^10}", "", "", "");
+
+    for file in dir {
+        let Ok(file) = file else {
+            continue
+        };
+
+        let elapsed = file.metadata()
+            .unwrap()
+            .modified()
+            .unwrap()
+            .elapsed()
+            .unwrap()
+            .as_secs();
+
+        let hours = elapsed / (60 * 60);
+        let elapsed = elapsed % (60 * 60);
+        let minutes = elapsed / (60);
+        let seconds = elapsed % 60;
+
+        let time = format!("{:0>2}:{:0>2}:{:0>2}", hours, minutes, seconds);
+        let name = file.file_name();
+        let name = name.to_str().unwrap();
+        let name = match name.len() > 25 {
+            true => &name[..25],
+            false => name,
+        };
+
+        eprintln!("{: ^25} | {: ^14} | {: ^10}", name, time, "test");
     }
 }
 
@@ -51,8 +89,15 @@ fn exec(name: String, pipeline: String) {
 
     let Ok(pipeline) = Pipeline::new(name.clone(), pipeline) else { return };
 
+    let running_dir = Path::new(pipeline::RUNNING_DIR).join(&name);
+    fs::create_dir_all(&running_dir).unwrap();
+    fs::File::create(running_dir
+        .join(".data"))
+        .expect("failed to create file to store PlumberFile struct");
+
+    let n = name.clone();
     ctrlc::set_handler(move || {
-        if let Err(_) = Pipeline::stop(&name) {
+        if Pipeline::stop(&n).is_err() {
             log::error!("something went very wrong with the termination signal handler");
             log::error!("this may cause the pipeline to continue running in the background!");
             log::error!("you may be able to still gracefully kill the pipeline by finding the pid of the first \
@@ -97,7 +142,7 @@ fn stop(path: PathBuf, timeout: u32) {
     };
 
     for name in &names {
-        if let Err(e) = Pipeline::stop(&name) {
+        if let Err(e) = Pipeline::stop(name) {
             match e {
                 pipeline::PipelineError::FileNotFound => log::warn!("unabled to find pid for name '{}'", name),
                 pipeline::PipelineError::Other => log::error!("{:#?}", e),
@@ -148,7 +193,7 @@ fn run(path: PathBuf) {
 
     ctrlc::set_handler(move || {
         for name in &names {
-            if let Err(e) = Pipeline::stop(&name) {
+            if let Err(e) = Pipeline::stop(name) {
                 log::error!("something went wrong with the termination signal handler: {:?}", e);
                 log::error!("this may cause the pipeline to continue running in the background!");
                 log::error!("you may be able to still gracefully kill the pipeline by finding the pid of the first \
@@ -178,5 +223,6 @@ fn main() {
         Subargs::Stop { path , timeout} => {
             stop(path.into(), *timeout);
         }
+        Subargs::Ls => ls(),
     }
 }
