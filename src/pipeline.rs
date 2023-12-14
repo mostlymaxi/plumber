@@ -213,6 +213,8 @@ impl Pipeline {
         if let Err(e) = fs::remove_dir(&running_dir) {
             log::error!("({}) failed to remove running directory: {}", &self.name, e);
         }
+
+        log::info!("({}) done!", &self.name);
     }
 }
 

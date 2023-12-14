@@ -89,8 +89,15 @@ fn exec(name: String, pipeline: String) {
 
     let Ok(pipeline) = Pipeline::new(name.clone(), pipeline) else { return };
 
+    let running_dir = Path::new(pipeline::RUNNING_DIR).join(&name);
+    fs::create_dir_all(&running_dir).unwrap();
+    fs::File::create(&running_dir
+        .join(".data"))
+        .expect("failed to create file to store PlumberFile struct");
+
+    let n = name.clone();
     ctrlc::set_handler(move || {
-        if Pipeline::stop(&name).is_err() {
+        if Pipeline::stop(&n).is_err() {
             log::error!("something went very wrong with the termination signal handler");
             log::error!("this may cause the pipeline to continue running in the background!");
             log::error!("you may be able to still gracefully kill the pipeline by finding the pid of the first \
